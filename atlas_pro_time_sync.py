@@ -94,17 +94,20 @@ def main_loop():
 
     while cycle:
         wlan_connected = wlan_sta.isconnected()
+        wlan_just_connected = False
         ticks_ms = time.ticks_ms()
 
         if wlan_connected == False:
             try:
                 wlan_connected = do_wifi_connect(ap_ssid, ap_password)
+                wlan_connected_changed = True
             except:
                 log("[WiFi] Failed")
+                      
 
         if (
             wlan_connected == True
-            and last_time_synchronized + sync_time_interval_ms < ticks_ms
+            and (last_time_synchronized + sync_time_interval_ms < ticks_ms or wlan_just_connected)
         ):
             try:
                 geo_time = get_ipgeolocaiton_timestamp()
@@ -150,4 +153,3 @@ if __name__ == "__main__":
     log("[RTC] Initial time: ", rtc.datetime())
 
     main_loop()
-
