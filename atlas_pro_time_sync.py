@@ -1,4 +1,5 @@
 import time
+import datetime
 import ujson
 import urequests as requests
 import network
@@ -12,9 +13,8 @@ ap_ssid = "{ap_ssid}"
 ap_password = "{ap_password}"
 webrtl_password = "{webrtl_password}"
 ipgeolocaiton_api_key = "{ipgeolocaiton_api_key}"
-sync_time_interval_ms = 3600000 * 2  # 2h
-push_time_interval_ms = 60000
-
+sync_time_interval_ms = 3600000 * 2  # 2 hours
+head_unit_timezone_offset = 3 #in hours
 
 wlan_ap = network.WLAN(network.AP_IF)
 wlan_sta = network.WLAN(network.STA_IF)
@@ -67,40 +67,32 @@ def do_wifi_connect(ssid, password):
 
     return connected
 
-
-def format_date(year, month, day, hours, minutes, seconds):
-    formatter_year = f"{year:0>{4}}"
-    formatted_month = f"{month:0>{2}}"
-    formatted_day = f"{day:0>{2}}"
-    formatted_hours = f"{hours:0>{2}}"
-    formatted_minutes = f"{minutes:0>{2}}"
-    formatted_seconds = f"{seconds:0>{2}}"
-
-    return (
-        formatted_month
-        + formatted_day
-        + formatted_hours
-        + formatted_minutes
-        + formatter_year
-        + "."
-        + formatted_seconds
-    )
-
-
-def get_ipgeolocaiton_time():
+def get_ipgeolocaiton_timestamp():
     raw_response = requests.get(
         url="https://api.ipgeolocation.io/ipgeo?apiKey=" + ipgeolocaiton_api_key
     ).text
     data = ujson.loads(raw_response)
+    local_offset = int(data["time_zone"]["offset_with_dst"])
+   
+    with_heatunit_offset = local_offset + (local_offset - head_unit_timezone_offset)
+    geo_time = datetime.datetime.fromisoformat((data["time_zone"]["current_time"])[0:19])
+    
+    return geo_time - datetime.timedelta(seconds = with_heatunit_offset * 60 * 60)
 
-    return datetime.datetime.fromisoformat((data["time_zone"]["current_time"])[0:19])
-
+def update_head_unit_time():
+    # In ESP32 epoch time is started from 01/01/2020. In unix this value is equal to January 1, 1970.
+    epoch_time_offset = 946684800;
+    command = "date " + str(time.time() + epoch_time_offset)
+    log("[UART] Write command:", command)
+    uart.write(command)
+    log("[UART] Executed with result:", uart.readline())
+    
 
 def main_loop():
     last_time_synchronized = -1 * sync_time_interval_ms
-    last_push_time = -1 * push_time_interval_ms
+    cycle = 1
 
-    while True:
+    while cycle:
         wlan_connected = wlan_sta.isconnected()
         ticks_ms = time.ticks_ms()
 
@@ -115,7 +107,8 @@ def main_loop():
             and last_time_synchronized + sync_time_interval_ms < ticks_ms
         ):
             try:
-                geo_time = get_ipgeolocaiton_time()
+                geo_time = get_ipgeolocaiton_timestamp()
+                  
                 rtc_external.datetime(
                     (
                         geo_time.year,
@@ -128,32 +121,23 @@ def main_loop():
                 )
                 last_time_synchronized = ticks_ms
                 log("[Time Synchronization] Executed", rtc_external.datetime())
+                
+                if cycle > 4:
+                    update_head_unit_time()
+            
             except:
                 log("[Time Synchronization] Failed")
+                
 
-        if last_push_time + push_time_interval_ms < ticks_ms:
+        if cycle > 1 and cycle < 4:
             try:
-                (
-                    year,
-                    month,
-                    day,
-                    weekday,
-                    hours,
-                    minutes,
-                    seconds,
-                    subseconds,
-                ) = rtc.datetime()
-                command = "date " + format_date(
-                    year, month, day, hours, minutes, seconds
-                )
-                log("[UART] Write command:", command)
-                uart.write(command)
-                last_push_time = ticks_ms
-                log("[UART] Executed with result:", uart.readline())
+                update_head_unit_time()
             except:
                 log("[UART] Failed")
 
-        time.sleep(10)
+        cycle += 1
+        
+        time.sleep(15)
 
 
 if __name__ == "__main__":
@@ -162,11 +146,8 @@ if __name__ == "__main__":
     rtc_external = DS3231(i2c)
     rtc = RTC()
     rtc.init(rtc_external.datetime())
-
-    (year, month, day, weekday, hours, minutes, seconds, subseconds) = rtc.datetime()
-    log(
-        "[RTC] Initial time: ", format_date(year, month, day, hours, minutes, seconds)
-    )
+    
+    log("[RTC] Initial time: ", rtc.datetime())
 
     main_loop()
 
