@@ -82,7 +82,7 @@ def get_ipgeolocaiton_timestamp():
 def update_head_unit_time():
     # In ESP32 epoch time is started from 01/01/2020. In unix this value is equal to January 1, 1970.
     epoch_time_offset = 946684800;
-    command = "date " + str(time.time() + epoch_time_offset)
+    command = "date " + str(time.time() + epoch_time_offset) + " \r"
     log("[UART] Write command:", command)
     uart.write(command)
     log("[UART] Executed with result:", uart.readline())
