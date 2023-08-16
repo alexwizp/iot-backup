@@ -140,7 +140,7 @@ def main_loop():
 
         cycle += 1
         
-        time.sleep(15)
+        time.sleep(10)
 
 
 if __name__ == "__main__":
